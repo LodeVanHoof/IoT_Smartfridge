@@ -19,3 +19,10 @@ def remove_product(product: Content):
         (product.name, product.expiration_date)
     )
     return result
+@router.post("/warned_true")
+def product_true(product: Content):
+    result = db.execute_sql_query(
+        queries.warned_query,
+        (product.name, product.expiration_date)
+    )
+    return result
