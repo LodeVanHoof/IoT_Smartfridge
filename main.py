@@ -242,6 +242,7 @@ try:
         OLED_ShowTemperature()
         OLED_Update()
         time.sleep(cooldown)
+
 except KeyboardInterrupt:
     t_read_temp.join()
     t_measure_distance.join()
