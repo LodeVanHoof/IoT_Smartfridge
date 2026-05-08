@@ -85,6 +85,13 @@ def OLED_Update():
     oled.image(image)
     oled.show()
 
+def count_door_open():
+    seconds = 0
+    while seconds < MAX_TIME_OPEN:
+        time.sleep(1)
+        seconds += 1
+    close_door()
+
 LED_GPIO = board.D22
 COIL1_GPIO = board.D17
 COIL2_GPIO = board.D17
@@ -96,6 +103,7 @@ OLED_RESET_GPIO = board.D25
 OLED_CS_GPIO = board.D16
 
 CLOSED_DISTANCE = 0;
+MAX_TIME_OPEN = 30
 
 PICO_IP = "192.168.1.171"
 
@@ -203,15 +211,24 @@ def task_send_temperature():
         requests.get(url, timeout=5)
         time.sleep(cooldown)
 
+def task_door_status():
+    while program:
+        if distance > CLOSED_DISTANCE:
+            count_door_open()
+        else:
+            time.sleep(1)
+
 #Initialize threads
 t_read_temp = threading.Thread(target=task_read_temp, daemon=True)
 t_measure_distance = threading.Thread(target=task_measure_distance, daemon=True)
 t_send_temperature = threading.Thread(target=task_send_temperature, daemon=True)
+t_door_status  = threading.Thread(target=task_door_status, daemon=True)
 
 #Start threads
 t_read_temp.start()
 t_measure_distance.start()
 t_send_temperature.start()
+t_door_status.start()
 
 #Main program
 try:
