@@ -158,7 +158,6 @@ def oled_show_temperature():
 def close_door():
     while distance > CLOSED_DISTANCE:
         Motor.value = True
-        time.sleep(0.05)
     Motor.value = False
 
 def publish_door_status(open: bool):
@@ -272,17 +271,20 @@ def task_measure_distance():
         while echo.value:
             pulse_end = time.time()
 
+
         distance = (pulse_end - pulse_start) * 17000
+        print(f"Distance: {distance:.1f} cm")
         time.sleep(distance_cooldown)
 
 def task_door_status():
     while program:
         if distance > CLOSED_DISTANCE:
-            publish_door_status(True)
-            count_door_open()
-        else:
-            time.sleep(distance_cooldown)
             publish_door_status(False)
+            Motor.value = False
+        else:
+            Motor.value = True
+            publish_door_status(True)
+        time.sleep(distance_cooldown)
 
 def task_send_temperature():
     while program:
@@ -338,6 +340,7 @@ def task_qr_scan():
 
         finally:
             oled_busy = False  # geef scherm terug aan temperatuur
+        
 
 # =====================================================
 # START THREADS
@@ -380,3 +383,5 @@ except KeyboardInterrupt:
     t_send_temperature.join()
     cap.release()
     led.value = False
+    Motor.value = False  
+    oled_show("Goodbye!")
