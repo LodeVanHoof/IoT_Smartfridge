@@ -53,7 +53,7 @@ api                = "https://iot-api.vercel.app/"
 days_before_warning = 3
 cooldown           = 5
 distance_cooldown  = 0.5
-
+TOPIC_DOOR_STATUS = "smart_fridge/door_status"
 # =====================================================
 # GLOBALE VARIABELEN
 # =====================================================
@@ -68,7 +68,7 @@ oled_busy = False   # True als QR-scan scherm actief is
 # MQTT SETUP
 # =====================================================
 
-def on_connect(client, userdata, flags, rc):
+def on_connect(client, userdata, flags, rc, properties):
     print("Connected to MQTT")
     client.subscribe(TOPIC_COMMAND)
 
@@ -161,7 +161,11 @@ def close_door():
         time.sleep(0.05)
     Motor.value = False
 
+def publish_door_status(open: bool):
+    client.publish(TOPIC_DOOR_STATUS, "open" if open else "closed")
+
 def count_door_open():
+    publish_door_status(True)
     seconds = 0
     while seconds < MAX_TIME_OPEN:
         time.sleep(1)
@@ -176,9 +180,10 @@ def get_content():
     response = requests.get(api + "get_content")
     for p in response.json():
         product = Product()
-        product.expiration_date = p["expiration_date"]
-        product.name = p["name"]
-        product.warned = p["warned"]
+        product.expiration_date = p[2]
+        product.name = p[1]
+        product.warned = p[3]
+        product.expired = p[4]
         products.append(product)
 
 def insert_content(expiration_date, name, warned):
@@ -214,6 +219,11 @@ def send_warning(product):
 def product_expire(product):
     message = f"ALERT: {product.name} has expired!"
     requests.post(f"https://ntfy.sh/smart_fridge", data=message.encode('utf-8'))
+    product.expired = True
+    requests.post(api + "expired_true", json={
+        "name": product.name,
+        "expiration_date": product.expiration_date
+    })
 
 def send_to_api(product_data, action):
     payload = {
@@ -268,9 +278,17 @@ def task_measure_distance():
 def task_door_status():
     while program:
         if distance > CLOSED_DISTANCE:
+            publish_door_status(True)
             count_door_open()
         else:
             time.sleep(distance_cooldown)
+            publish_door_status(False)
+
+def task_send_temperature():
+    while program:
+        url = f"http://{PICO_IP}/?temp={temp}"
+        requests.get(url, timeout=5)
+        time.sleep(cooldown)
 
 def task_qr_scan():
     """Scant continu op QR-codes en verwerkt ze."""
@@ -329,10 +347,12 @@ t_read_temp       = threading.Thread(target=task_read_temp,       daemon=True)
 t_measure_distance = threading.Thread(target=task_measure_distance, daemon=True)
 t_door_status     = threading.Thread(target=task_door_status,     daemon=True)
 t_qr_scan         = threading.Thread(target=task_qr_scan,         daemon=True)
+t_send_temperature = threading.Thread(target=task_send_temperature, daemon=True)
 
 t_read_temp.start()
 t_measure_distance.start()
 t_door_status.start()
+t_send_temperature.start()
 t_qr_scan.start()
 client.loop_start()
 
@@ -343,10 +363,10 @@ get_content()
 try:
     while program:
         for product in products:
-            if datetime.date.fromisoformat(product.expiration_date) < datetime.date.today():
-                product_expire(product)
-            elif (datetime.date.fromisoformat(product.expiration_date) - datetime.date.today()) <= datetime.timedelta(days=days_before_warning) and not product.warned:
+            if (datetime.date.fromisoformat(product.expiration_date) - datetime.date.today()) <= datetime.timedelta(days=days_before_warning) and not product.warned:
                 send_warning(product)
+            elif datetime.date.fromisoformat(product.expiration_date) < datetime.date.today() and not product.expired:
+                product_expire(product)
 
         oled_show_temperature()
         time.sleep(cooldown)
@@ -357,5 +377,6 @@ except KeyboardInterrupt:
     t_measure_distance.join()
     t_door_status.join()
     t_qr_scan.join()
+    t_send_temperature.join()
     cap.release()
     led.value = False

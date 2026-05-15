@@ -359,9 +359,16 @@
 const COMMAND_TOPIC = "smart_fridge/door";
 
 function sendCloseDoorMQTT() {
-  const message = new Paho.MQTT.Message("close");
-  message.destinationName = COMMAND_TOPIC;
-  client.send(message);
+  const cmdClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "fridge_cmd_" + Math.random().toString(16).substr(2,8));
+  cmdClient.connect({
+    useSSL: true,
+    onSuccess: () => {
+      const message = new Paho.MQTT.Message("close");
+      message.destinationName = COMMAND_TOPIC;
+      cmdClient.send(message);
+    },
+    onFailure: e => console.error("MQTT command failed:", e.errorMessage)
+  });
 }
   function updateStats() {
     const total = items.length;
@@ -478,7 +485,6 @@ function sendCloseDoorMQTT() {
     setDoor(false);
     addNotification("fresh", "Door closed", "Fridge door has been closed", "just now");
   }
-  setInterval(() => setDoor(!doorOpen), 5000);
 
   function setApiBadge(state, text) {
     const b = document.getElementById("api-badge");
@@ -505,6 +511,10 @@ function sendCloseDoorMQTT() {
       setTimeout(initMQTT, 5000);
     };
     client.onMessageArrived = msg => {
+      if (msg.destinationName === "smart_fridge/door_status") {
+        setDoor(msg.payloadString === "open");
+        return;
+      }
       const temp = parseFloat(msg.payloadString);
       if (isNaN(temp)) return;
       const el = document.getElementById("temp-val");
@@ -519,6 +529,7 @@ function sendCloseDoorMQTT() {
       onSuccess: () => {
         setMqttBadge("connected", "connected");
         client.subscribe(TOPIC);
+        client.subscribe("smart_fridge/door_status");
       },
       onFailure: e => {
         setMqttBadge("error", "failed");
