@@ -279,11 +279,9 @@ def task_measure_distance():
 def task_door_status():
     while program:
         if distance > CLOSED_DISTANCE:
-            publish_door_status(False)
             Motor.value = False
         else:
             Motor.value = True
-            publish_door_status(True)
         time.sleep(distance_cooldown)
 
 def task_send_temperature():
@@ -291,6 +289,14 @@ def task_send_temperature():
         url = f"http://{PICO_IP}/?temp={temp}"
         requests.get(url, timeout=5)
         time.sleep(cooldown)
+
+def task_door_statusMQTT():
+    while program:
+        if distance > CLOSED_DISTANCE:
+            publish_door_status(True)
+        else:
+            publish_door_status(False)
+        time.sleep(1)
 
 def task_qr_scan():
     """Scant continu op QR-codes en verwerkt ze."""
@@ -351,6 +357,7 @@ t_measure_distance = threading.Thread(target=task_measure_distance, daemon=True)
 t_door_status     = threading.Thread(target=task_door_status,     daemon=True)
 t_qr_scan         = threading.Thread(target=task_qr_scan,         daemon=True)
 t_send_temperature = threading.Thread(target=task_send_temperature, daemon=True)
+t_door_statusMQTT = threading.Thread(target=task_door_statusMQTT, daemon=True)
 
 t_read_temp.start()
 t_measure_distance.start()
@@ -358,6 +365,7 @@ t_door_status.start()
 t_send_temperature.start()
 t_qr_scan.start()
 client.loop_start()
+t_door_statusMQTT.start()
 
 # =====================================================
 # MAIN LOOP
@@ -376,12 +384,13 @@ try:
 
 except KeyboardInterrupt:
     program = False
+    Motor.value = Falses
+    led.value = False
     t_read_temp.join()
     t_measure_distance.join()
     t_door_status.join()
     t_qr_scan.join()
     t_send_temperature.join()
+    t_door_statusMQTT.join()
     cap.release()
-    led.value = False
-    Motor.value = False  
     oled_show("Goodbye!")
