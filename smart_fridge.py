@@ -164,7 +164,6 @@ def publish_door_status(open: bool):
     client.publish(TOPIC_DOOR_STATUS, "open" if open else "closed")
 
 def count_door_open():
-    publish_door_status(True)
     seconds = 0
     while seconds < MAX_TIME_OPEN:
         time.sleep(1)
@@ -277,12 +276,20 @@ def task_measure_distance():
         time.sleep(distance_cooldown)
 
 def task_door_status():
-    while program:
-        if distance > CLOSED_DISTANCE:
-            Motor.value = False
-        else:
-            Motor.value = True
-        time.sleep(distance_cooldown)
+    seconds = 0
+    while seconds < MAX_TIME_OPEN:
+        time.sleep(1)
+        seconds += 1
+    close_door()
+
+#Old code below for debugging if function doesn't work
+#    while program:
+#        if distance > CLOSED_DISTANCE:
+#            Motor.value = False
+#        else:
+#            Motor.value = True
+#        time.sleep(distance_cooldown)
+
 
 def task_send_temperature():
     while program:
@@ -384,7 +391,7 @@ try:
 
 except KeyboardInterrupt:
     program = False
-    Motor.value = Falses
+    Motor.value = False
     led.value = False
     t_read_temp.join()
     t_measure_distance.join()
