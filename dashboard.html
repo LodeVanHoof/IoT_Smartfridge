@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FreshWatch — Smart Fridge</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <style>
+    :root{--bg:#f8f9fa;--surface:#fff;--surface2:#f5f6f8;--border:rgba(0,0,0,.06);--border2:rgba(0,0,0,.1);--text:#1a1d23;--text-secondary:#6b7280;--fresh:#10b981;--fresh-bg:rgba(16,185,129,.08);--warn:#f59e0b;--warn-bg:rgba(245,158,11,.08);--danger:#ef4444;--danger-bg:rgba(239,68,68,.08);--blue:#3b82f6;--blue-bg:rgba(59,130,246,.08)}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-height:100vh;display:flex;flex-direction:column}
+    header{display:flex;align-items:center;justify-content:space-between;padding:1.5rem 2rem;border-bottom:1px solid var(--border);background:var(--surface)}
+    .logo{font-family:'Syne',sans-serif;font-weight:800;font-size:1.3rem;letter-spacing:-.03em}.logo span{color:var(--fresh)}
+    .header-status{display:flex;align-items:center;gap:1.5rem;font-size:.75rem;color:var(--text-secondary)}
+    .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;animation:pulse 2s infinite}
+    .dot.green{background:var(--fresh)}.dot.orange{background:var(--warn);animation:none}.dot.red{background:var(--danger);animation:none}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+    .hbadge{font-size:.65rem;padding:3px 8px;border-radius:20px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+    .hbadge.connecting{background:var(--warn-bg);color:var(--warn)}.hbadge.connected{background:var(--fresh-bg);color:var(--fresh)}.hbadge.error{background:var(--danger-bg);color:var(--danger)}
+    .layout{display:grid;grid-template-columns:1fr 1fr;gap:0;flex:1;min-height:0}
+    .sensor-panel{border-right:1px solid var(--border);padding:2rem;display:flex;flex-direction:column;gap:2rem;background:var(--surface);overflow-y:auto}
+    .sensor-panel::-webkit-scrollbar{width:6px}.sensor-panel::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+    .panel-title{font-family:'Syne',sans-serif;font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-secondary)}
+    .status-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1.2rem;display:flex;align-items:center;justify-content:space-between}
+    .status-card .label{font-size:.8rem;color:var(--text-secondary)}.status-card .status{display:flex;align-items:center;gap:6px;font-weight:500;font-size:.9rem}
+    .sensors-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem}
+    .sensor-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1.2rem}
+    .sensor-card .label{font-size:.7rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.6rem}
+    .sensor-card .value{font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:700;color:var(--text)}
+    .action-buttons{display:flex;gap:1rem;flex-direction:column}
+    .action-btn{display:flex;align-items:center;justify-content:center;gap:.6rem;padding:.95rem 1.2rem;border:1px solid var(--border);border-radius:10px;background:var(--surface2);color:var(--text);font-family:'DM Mono',monospace;font-size:.8rem;font-weight:600;cursor:pointer;transition:all .2s;text-transform:uppercase;letter-spacing:.05em}
+    .action-btn:hover{background:var(--text);color:var(--surface);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.1)}.action-btn:active{transform:translateY(0)}
+    .action-btn.primary{background:var(--fresh);color:#fff;border-color:var(--fresh)}.action-btn.primary:hover{background:#059669;border-color:#059669;color:#fff}
+    .notifications-box{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1.2rem;display:flex;flex-direction:column;gap:1rem}
+    .notifications-header{display:flex;align-items:center;gap:.8rem;margin-bottom:.5rem}
+    .notifications-list{display:flex;flex-direction:column;gap:.8rem;max-height:200px;overflow-y:auto}
+    .notifications-list::-webkit-scrollbar{width:4px}.notifications-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+    .notification-item{display:flex;gap:.75rem;padding:.75rem;background:var(--surface);border-radius:8px;border-left:3px solid var(--blue);font-size:.7rem;line-height:1.4}
+    .notification-item.fresh{border-left-color:var(--fresh)}.notification-item.warn{border-left-color:var(--warn)}.notification-item.danger{border-left-color:var(--danger)}
+    .notification-dot{width:8px;height:8px;border-radius:50%;margin-top:2px;flex-shrink:0}
+    .notification-content{display:flex;flex-direction:column;gap:2px}
+    .notification-title{font-weight:600;color:var(--text)}.notification-time{color:var(--text-secondary);font-size:.65rem}
+    .empty-notifications{text-align:center;color:var(--text-secondary);font-size:.7rem;padding:1rem 0}
+    .data-panel{display:flex;flex-direction:column;flex:1;overflow:hidden}
+    .stat-bar{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border);background:var(--surface)}
+    .stat-cell{padding:1.5rem 1.75rem;border-right:1px solid var(--border)}.stat-cell:last-child{border-right:none}
+    .stat-cell .label{font-size:.7rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.1em;margin-bottom:.6rem}
+    .stat-cell .value{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;line-height:1}
+    .value.fresh{color:var(--fresh)}.value.warn{color:var(--warn)}.value.danger{color:var(--danger)}.value.neutral{color:var(--text)}
+    .filter-bar{display:flex;border-bottom:1px solid var(--border);padding:0 1.75rem;background:var(--surface)}
+    .filter-tab{padding:1rem 1.25rem;font-size:.75rem;font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.08em;cursor:pointer;border:none;background:none;color:var(--text-secondary);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .2s;text-transform:uppercase}
+    .filter-tab:hover{color:var(--text)}.filter-tab.active{color:var(--fresh);border-bottom-color:var(--fresh)}
+    .items-scroll{flex:1;overflow-y:auto;background:var(--surface)}
+    .items-scroll::-webkit-scrollbar{width:6px}.items-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+    .col-header{display:grid;grid-template-columns:32px 1fr 90px 90px 100px 50px;padding:.75rem 1.75rem;border-bottom:1px solid var(--border);background:var(--surface2);gap:1rem;position:sticky;top:0}
+    .col-header span{font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;color:var(--text-secondary);font-weight:600}
+    .item-row{display:grid;grid-template-columns:32px 1fr 90px 90px 100px 50px;align-items:center;padding:.85rem 1.75rem;border-bottom:1px solid var(--border);transition:background .15s;gap:1rem}
+    .item-row:hover{background:var(--surface2)}
+    .item-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+    .item-content{display:flex;flex-direction:column;gap:3px}
+    .item-name{font-size:.85rem;color:var(--text);font-weight:500}.item-cat{font-size:.7rem;color:var(--text-secondary)}
+    .item-days{font-family:'Syne',sans-serif;font-size:.85rem;font-weight:700}.item-date{font-size:.75rem;color:var(--text-secondary)}
+    .badge{display:inline-block;font-size:.65rem;padding:4px 12px;border-radius:20px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+    .badge.fresh{background:var(--fresh-bg);color:var(--fresh)}.badge.expiring{background:var(--warn-bg);color:var(--warn)}.badge.expired{background:var(--danger-bg);color:var(--danger)}
+    .delete-btn{background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:1.1rem;padding:.4rem;border-radius:6px;transition:all .2s;display:flex;align-items:center;justify-content:center}
+    .delete-btn:hover{background:var(--danger-bg);color:var(--danger)}
+    .action-bar{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.75rem;background:var(--surface);border-top:1px solid var(--border);font-size:.8rem;color:var(--text-secondary)}
+    .scan-btn{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:.75rem;font-family:'DM Mono',monospace;font-weight:600;cursor:pointer;transition:all .2s}
+    .scan-btn:hover{background:#2563eb;transform:translateY(-2px)}
+    .empty{padding:3rem 1.75rem;text-align:center;color:var(--text-secondary);font-size:.85rem}
+    .loading{padding:3rem 1.75rem;text-align:center;color:var(--text-secondary);font-size:.85rem;animation:pulse 1.5s infinite}
+    .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:2000;align-items:center;justify-content:center}
+    .modal.active{display:flex}
+    .modal-content{background:var(--surface);border-radius:16px;padding:2rem;width:90%;max-width:500px;box-shadow:0 20px 60px rgba(0,0,0,.15)}
+    .modal-title{font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:1.5rem}
+    .modal-subtitle{font-size:.9rem;color:var(--text-secondary);margin-bottom:1.5rem;line-height:1.5}
+    .modal-item-name{font-weight:600;color:var(--text)}
+    .form-group{display:flex;flex-direction:column;gap:.6rem;margin-bottom:1.2rem}
+    .form-group label{font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+    .form-group input,.form-group select{padding:.8rem;border:1px solid var(--border);border-radius:8px;font-family:'DM Mono',monospace;font-size:.9rem;background:var(--surface2);color:var(--text)}
+    .form-buttons{display:flex;gap:1rem;margin-top:2rem}
+    .form-buttons button{flex:1;padding:.9rem;border:none;border-radius:8px;font-family:'DM Mono',monospace;font-size:.8rem;font-weight:600;cursor:pointer;transition:all .2s;text-transform:uppercase;letter-spacing:.05em}
+    .cancel-btn{background:var(--surface2);color:var(--text);border:1px solid var(--border)!important}.cancel-btn:hover{background:var(--border)}
+    .submit-btn{background:var(--fresh);color:#fff}.submit-btn:hover{background:#059669}
+    .spin{display:inline-block;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Fresh<span>Watch</span></div>
+  <div class="header-status">
+    <span><span class="dot green"></span>Live</span>
+    <span id="clock">--:--:--</span>
+    <span id="mqtt-badge" class="hbadge connecting">MQTT: connecting</span>
+    <span id="api-badge" class="hbadge connecting">API: loading</span>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="sensor-panel">
+    <div>
+      <div class="panel-title" style="margin-bottom:1rem">Fridge status</div>
+      <div class="status-card">
+        <span class="label">Door</span>
+        <span class="status"><span class="dot green" id="door-dot"></span><span id="door-text">Closed</span></span>
+      </div>
+    </div>
+    <div>
+      <div class="panel-title" style="margin-bottom:1rem">Environment</div>
+      <div class="sensors-grid">
+        <div class="sensor-card">
+          <div class="label">Temperature</div>
+          <div class="value" id="temp-val">—</div>
+        </div>
+        <div class="sensor-card">
+          <div class="label">Items</div>
+          <div class="value" id="items-count">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="action-buttons">
+      <button class="action-btn" onclick="sendCloseDoorMQTT()">Close door</button>
+      <button class="action-btn primary" onclick="openAddModal()">➕ Add item</button>
+    </div>
+    <div class="notifications-box">
+      <div class="notifications-header"><div class="panel-title">Notifications</div></div>
+      <div class="notifications-list" id="notifications-list">
+        <div class="empty-notifications">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="data-panel">
+    <div class="stat-bar">
+      <div class="stat-cell"><div class="label">Total items</div><div class="value neutral" id="stat-total">—</div></div>
+      <div class="stat-cell"><div class="label">Fresh</div><div class="value fresh" id="stat-fresh">—</div></div>
+      <div class="stat-cell"><div class="label">Expiring soon</div><div class="value warn" id="stat-warn">—</div></div>
+      <div class="stat-cell"><div class="label">Expired</div><div class="value danger" id="stat-danger">—</div></div>
+    </div>
+    <div class="filter-bar">
+      <button class="filter-tab active" onclick="setFilter('all',this)">All</button>
+      <button class="filter-tab" onclick="setFilter('fresh',this)">Fresh</button>
+      <button class="filter-tab" onclick="setFilter('expiring',this)">Expiring</button>
+      <button class="filter-tab" onclick="setFilter('expired',this)">Expired</button>
+    </div>
+    <div class="col-header">
+      <span></span><span>Product</span><span>Days left</span><span>Expires</span><span>Status</span><span></span>
+    </div>
+    <div class="items-scroll" id="items-list"><div class="loading">⏳ Fetching items from database…</div></div>
+    <div class="action-bar">
+      <span>Last sync: <strong id="last-scan">—</strong></span>
+      <button class="scan-btn" onclick="loadItems()">↻ Refresh</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="addItemModal">
+  <div class="modal-content">
+    <div class="modal-title">Add item to fridge</div>
+    <div class="form-group"><label>Product name</label><input type="text" id="item-name" placeholder="e.g. Greek yoghurt"></div>
+    <div class="form-group"><label>Expiry date</label><input type="date" id="item-expiry"></div>
+    <div class="form-buttons">
+      <button class="cancel-btn" onclick="closeAddModal()">Cancel</button>
+      <button class="submit-btn" id="add-submit-btn" onclick="addItem()">Add item</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="deleteItemModal">
+  <div class="modal-content">
+    <div class="modal-title">Delete item</div>
+    <div class="modal-subtitle">Are you sure you want to delete <span class="modal-item-name" id="deleteItemName"></span>?</div>
+    <div class="form-buttons">
+      <button class="cancel-btn" onclick="closeDeleteModal()">Cancel</button>
+      <button class="submit-btn" id="del-confirm-btn" style="background:var(--danger)" onclick="confirmDeleteItem()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const API = "https://iot-api.vercel.app";
+
+  let items = [];
+  let notifications = [];
+  let currentFilter = "all";
+  let itemToDelete = null;
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const daysLeft = d => {
+    try {
+      return Math.round((new Date(d) - today) / 86400000);
+    } catch(e) {
+      return 0;
+    }
+  };
+
+  const getStatus = d => {
+    const n = daysLeft(d);
+    return n < 0 ? "expired" : n <= 3 ? "expiring" : "fresh";
+  };
+
+  const daysLabel = d => d < 0 ? `${Math.abs(d)}d ago` : d === 0 ? "Today" : d === 1 ? "Tomorrow" : `${d} days`;
+
+  function guessCategory(name) {
+    const n = name.toLowerCase();
+    if (/milk|cheese|yogh|butter|cream|dairy/.test(n))     return "Dairy";
+    if (/juice|water|drink|cola|soda|beer|wine/.test(n))   return "Drinks";
+    if (/pasta|rice|leftover|soup|stew|cooked/.test(n))    return "Cooked";
+    if (/salmon|tuna|fish|shrimp|prawn/.test(n))           return "Fish";
+    if (/jam|spread|butter|mayo|sauce/.test(n))            return "Spreads";
+    if (/lettuce|spinach|broccoli|carrot|tomato|veg/.test(n)) return "Vegetables";
+    if (/apple|banana|strawb|berry|fruit|orange/.test(n))  return "Fruits";
+    return "Other";
+  }
+
+  async function loadItems() {
+    const btn = document.querySelector(".scan-btn");
+    btn.innerHTML = '<span class="spin">↻</span> Syncing…';
+    btn.disabled = true;
+    setApiBadge("connecting", "syncing…");
+
+    try {
+      const response = await fetch(API + "/get_content");
+
+      if (!response.ok) throw new Error(`Status ${response.status}`);
+
+      const data = await response.json();
+
+      let rawItems = [];
+
+      // Handle the response format: either direct array or nested in object
+      if (Array.isArray(data)) {
+        rawItems = data;
+      } else if (data && typeof data === 'object') {
+        // Try to find items array in response object
+        if (Array.isArray(data.data)) rawItems = data.data;
+        else if (Array.isArray(data.items)) rawItems = data.items;
+        else if (Array.isArray(data.result)) rawItems = data.result;
+        else if (Array.isArray(data.content)) rawItems = data.content;
+      }
+
+      // Parse items - they come as arrays: [id, name, expiration_date, warned]
+      items = rawItems
+              .map(i => {
+                let name = '', expiration_date = '', warned = false;
+
+                if (Array.isArray(i)) {
+                  // Format: [productId, name, expiration_date, warned]
+                  name = i[1];
+                  expiration_date = i[2];
+                  warned = i[3] ?? false;
+                } else if (typeof i === 'object') {
+                  // Object format
+                  name = i.name || i.product_name || '';
+                  expiration_date = i.expiration_date || i.expiry_date || '';
+                  warned = i.warned ?? false;
+                }
+
+                return {
+                  name: String(name).trim(),
+                  expiration_date: String(expiration_date).trim(),
+                  warned: warned
+                };
+              })
+              .filter(i => i.name && i.expiration_date);
+
+      if (items.length === 0) {
+        document.getElementById("items-list").innerHTML = `<div class="empty">No items in fridge</div>`;
+        setApiBadge("error", "no items");
+        updateStats();
+        return;
+      }
+
+      setApiBadge("connected", "connected");
+      document.getElementById("last-scan").textContent =
+              `today at ${new Date().toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit"})}`;
+
+      items.forEach(i => {
+        const s = getStatus(i.expiration_date);
+        if (s === "expiring" && !i.warned) {
+          addNotification("warn", "Expiring soon", `${i.name} expires in ${daysLabel(daysLeft(i.expiration_date))}`, "just now");
+        }
+        if (s === "expired") {
+          addNotification("danger", "Expired item", `${i.name} has expired`, "just now");
+        }
+      });
+
+      updateStats();
+      renderItems();
+    } catch(e) {
+      setApiBadge("error", "error");
+      addNotification("danger", "API error", e.message, "just now");
+      document.getElementById("items-list").innerHTML =
+              `<div class="empty">⚠️ Could not load items</div>`;
+    } finally {
+      btn.innerHTML = "↻ Refresh";
+      btn.disabled = false;
+    }
+  }
+
+  async function addItem() {
+    const name = document.getElementById("item-name").value.trim();
+    const expiry = document.getElementById("item-expiry").value;
+    if (!name || !expiry) return;
+
+    const btn = document.getElementById("add-submit-btn");
+    btn.textContent = "Saving…";
+    btn.disabled = true;
+
+    try {
+      const response = await fetch(API + "/insert_content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, expiration_date: expiry })
+      });
+      if (!response.ok) throw new Error(`Status ${response.status}`);
+
+      addNotification("fresh", "Item added", `${name} added to fridge`, "just now");
+      closeAddModal();
+      await loadItems();
+    } catch(e) {
+      addNotification("danger", "Add failed", e.message, "just now");
+    } finally {
+      btn.textContent = "Add item";
+      btn.disabled = false;
+    }
+  }
+
+  async function confirmDeleteItem() {
+    if (!itemToDelete) return;
+    const btn = document.getElementById("del-confirm-btn");
+    btn.textContent = "Deleting…";
+    btn.disabled = true;
+
+    try {
+      const response = await fetch(API + "/remove_content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: itemToDelete.name,
+          expiration_date: itemToDelete.expiration_date
+        })
+      });
+      if (!response.ok) throw new Error(`Status ${response.status}`);
+
+      addNotification("warn", "Item removed", `${itemToDelete.name} deleted`, "just now");
+      closeDeleteModal();
+      await loadItems();
+    } catch(e) {
+      addNotification("danger", "Delete failed", e.message, "just now");
+    } finally {
+      btn.textContent = "Delete";
+      btn.disabled = false;
+    }
+  }
+const COMMAND_TOPIC = "smart_fridge/door";
+
+function sendCloseDoorMQTT() {
+  const message = new Paho.MQTT.Message("close");
+  message.destinationName = COMMAND_TOPIC;
+  client.send(message);
+}
+  function updateStats() {
+    const total = items.length;
+    const fresh = items.filter(i => getStatus(i.expiration_date) === "fresh").length;
+    const expiring = items.filter(i => getStatus(i.expiration_date) === "expiring").length;
+    const expired = items.filter(i => getStatus(i.expiration_date) === "expired").length;
+
+    document.getElementById("stat-total").textContent = total;
+    document.getElementById("stat-fresh").textContent = fresh;
+    document.getElementById("stat-warn").textContent = expiring;
+    document.getElementById("stat-danger").textContent = expired;
+    document.getElementById("items-count").textContent = total;
+  }
+
+  function renderItems() {
+    const list = document.getElementById("items-list");
+    const colors = { fresh:"var(--fresh)", expiring:"var(--warn)", expired:"var(--danger)" };
+    const filtered = items.filter(i => currentFilter === "all" || getStatus(i.expiration_date) === currentFilter);
+
+    if (!filtered.length) {
+      list.innerHTML = `<div class="empty">No items in this category</div>`;
+      return;
+    }
+
+    list.innerHTML = filtered.map((item, idx) => {
+      const s = getStatus(item.expiration_date);
+      const d = daysLeft(item.expiration_date);
+      const c = colors[s];
+      const cat = guessCategory(item.name);
+      return `<div class="item-row">
+        <div class="item-dot" style="background:${c}"></div>
+        <div class="item-content">
+          <div class="item-name">${item.name}</div>
+          <div class="item-cat">${cat}</div>
+        </div>
+        <div class="item-days" style="color:${c}">${daysLabel(d)}</div>
+        <div class="item-date">${item.expiration_date}</div>
+        <div><span class="badge ${s}">${s==="expiring"?"Soon":s.charAt(0).toUpperCase()+s.slice(1)}</span></div>
+        <button class="delete-btn" onclick="openDeleteModal(${idx})" title="Delete">🗑️</button>
+      </div>`;
+    }).join("");
+  }
+
+  function renderNotifications() {
+    const list = document.getElementById("notifications-list");
+    if (!notifications.length) {
+      list.innerHTML = `<div class="empty-notifications">No notifications</div>`;
+      return;
+    }
+    list.innerHTML = notifications.map(n => `
+      <div class="notification-item ${n.type}">
+        <div class="notification-dot" style="background:${n.type==='fresh'?'var(--fresh)':n.type==='warn'?'var(--warn)':'var(--danger)'}"></div>
+        <div class="notification-content">
+          <div class="notification-title">${n.title}</div>
+          <div>${n.message}</div>
+          <div class="notification-time">${n.time}</div>
+        </div>
+      </div>`).join("");
+  }
+
+  function addNotification(type, title, message, time) {
+    notifications.unshift({ type, title, message, time });
+    if (notifications.length > 10) notifications.pop();
+    renderNotifications();
+  }
+
+  function setFilter(f, btn) {
+    currentFilter = f;
+    document.querySelectorAll(".filter-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    renderItems();
+  }
+
+  function openAddModal() {
+    document.getElementById("addItemModal").classList.add("active");
+  }
+
+  function closeAddModal() {
+    document.getElementById("addItemModal").classList.remove("active");
+    document.getElementById("item-name").value = "";
+    document.getElementById("item-expiry").value = "";
+  }
+
+  function openDeleteModal(idx) {
+    const filtered = items.filter(i => currentFilter === "all" || getStatus(i.expiration_date) === currentFilter);
+    itemToDelete = filtered[idx];
+    document.getElementById("deleteItemName").textContent = itemToDelete.name;
+    document.getElementById("deleteItemModal").classList.add("active");
+  }
+
+  function closeDeleteModal() {
+    document.getElementById("deleteItemModal").classList.remove("active");
+    itemToDelete = null;
+  }
+
+  document.addEventListener("click", e => {
+    if (e.target === document.getElementById("addItemModal")) closeAddModal();
+    if (e.target === document.getElementById("deleteItemModal")) closeDeleteModal();
+  });
+
+  function updateClock() {
+    document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-GB");
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  let doorOpen = false;
+  function setDoor(open) {
+    doorOpen = open;
+    document.getElementById("door-dot").className = "dot " + (open ? "orange" : "green");
+    document.getElementById("door-text").textContent = open ? "Open" : "Closed";
+  }
+  function closeDoor() {
+    setDoor(false);
+    addNotification("fresh", "Door closed", "Fridge door has been closed", "just now");
+  }
+  setInterval(() => setDoor(!doorOpen), 5000);
+
+  function setApiBadge(state, text) {
+    const b = document.getElementById("api-badge");
+    b.className = "hbadge " + state;
+    b.textContent = "API: " + text;
+  }
+
+  function setMqttBadge(state, text) {
+    const b = document.getElementById("mqtt-badge");
+    b.className = "hbadge " + state;
+    b.textContent = "MQTT: " + text;
+  }
+
+  const BROKER = "broker.hivemq.com";
+  const MQTT_PORT = 8884;
+  const TOPIC = "smart_fridge_2026/senne_lode_xander_matteo/temperatuur";
+  const CLIENT_ID = "fridge_dashboard_" + Math.random().toString(16).substr(2,8);
+  const TEMP_WARN = 7, TEMP_DANGER = 10;
+
+  function initMQTT() {
+    const client = new Paho.MQTT.Client(BROKER, MQTT_PORT, CLIENT_ID);
+    client.onConnectionLost = r => {
+      setMqttBadge("error", "disconnected");
+      setTimeout(initMQTT, 5000);
+    };
+    client.onMessageArrived = msg => {
+      const temp = parseFloat(msg.payloadString);
+      if (isNaN(temp)) return;
+      const el = document.getElementById("temp-val");
+      el.textContent = temp.toFixed(1) + "°C";
+      el.style.color = temp >= TEMP_DANGER ? "var(--danger)" : temp >= TEMP_WARN ? "var(--warn)" : "var(--fresh)";
+      if (temp >= TEMP_DANGER)
+        addNotification("danger", "Temp too high", `Fridge is at ${temp.toFixed(1)}°C — check door`, "just now");
+    };
+    setMqttBadge("connecting", "connecting…");
+    client.connect({
+      useSSL: true,
+      onSuccess: () => {
+        setMqttBadge("connected", "connected");
+        client.subscribe(TOPIC);
+      },
+      onFailure: e => {
+        setMqttBadge("error", "failed");
+        setTimeout(initMQTT, 8000);
+      }
+    });
+  }
+
+  initMQTT();
+  loadItems();
+  setInterval(loadItems, 15000);
+</script>
+</body>
+</html>

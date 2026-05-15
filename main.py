@@ -99,6 +99,7 @@ distance = 0;
 
 days_before_warning = 3;
 cooldown = 5;
+distance_cooldown = 0.5
 
 products = []
 
@@ -179,7 +180,7 @@ def task_measure_distance():
 
         pulse_duration = pulse_end - pulse_start
         distance = pulse_duration * 17000  # Convert to cm
-        time.sleep(cooldown)
+        time.sleep(distance_cooldown)
 
 def task_send_temperature():
     while program: 
@@ -188,11 +189,12 @@ def task_send_temperature():
         time.sleep(cooldown)
 
 def task_door_status():
+    """Checks distance variable to see when door is open"""
     while program:
         if distance > CLOSED_DISTANCE:
             count_door_open()
         else:
-            time.sleep(1)
+            time.sleep(distance_cooldown)
 
 #Initialize threads
 t_read_temp = threading.Thread(target=task_read_temp, daemon=True)
