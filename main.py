@@ -18,19 +18,6 @@ class Product():
     name: str
     warned: bool
 
-def rotate(coil1,coil2):
-    coil1.value = True
-    coil2.value = True
-    time.sleep(0.002)
-    coil1.value = False
-    coil2.value = False
-
-def rotate(coil1, coil2, coil3, coil4):
-    rotate(coil1,coil2)
-    rotate(coil2,coil3)
-    rotate(coil3,coil4)
-    rotate(coil4,coil1)
-
 def get_content():
     products = requests.get(api + "get_content")
     for product in products:
@@ -54,8 +41,10 @@ def remove_product(product):
     requests.post(api + "remove_content", product) # REMOVE FROM DB
 
 def close_door():
+    global MOTOR_GPIO
     while distance > CLOSED_DISTANCE:
-        rotate()
+        MOTOR_GPIO.value = True
+    MOTOR_GPIO.value = False
 
 def send_warning(product):
     topic = "smart_fridge"
@@ -97,6 +86,7 @@ COIL1_GPIO = board.D17
 COIL2_GPIO = board.D17
 COIL3_GPIO = board.D17
 COIL4_GPIO = board.D1
+MOTOR_GPIO = board.D21
 
 OLED_DC_GPIO = board.D24
 OLED_RESET_GPIO = board.D25
