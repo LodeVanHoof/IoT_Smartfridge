@@ -26,3 +26,11 @@ def product_true(product: Content):
         (product.name, product.expiration_date)
     )
     return result
+
+@router.post("/expired_true")
+def product_true(product: Content):
+    result = db.execute_sql_query(
+        queries.expired_query,
+        (product.name, product.expiration_date)
+    )
+    return result

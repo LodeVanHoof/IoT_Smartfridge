@@ -338,7 +338,7 @@ client.loop_start()
 # =====================================================
 # MAIN LOOP
 # =====================================================
-
+get_content()
 try:
     while program:
         for product in products:
