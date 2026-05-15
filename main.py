@@ -41,10 +41,9 @@ def remove_product(product):
     requests.post(api + "remove_content", product) # REMOVE FROM DB
 
 def close_door():
-    global MOTOR_GPIO
     while distance > CLOSED_DISTANCE:
-        MOTOR_GPIO.value = True
-    MOTOR_GPIO.value = False
+        Motor.value = True
+    Motor.value = False
 
 def send_warning(product):
     topic = "smart_fridge"
@@ -82,10 +81,6 @@ def count_door_open():
     close_door()
 
 LED_GPIO = board.D22
-COIL1_GPIO = board.D17
-COIL2_GPIO = board.D17
-COIL3_GPIO = board.D17
-COIL4_GPIO = board.D1
 MOTOR_GPIO = board.D21
 
 OLED_DC_GPIO = board.D24
@@ -119,19 +114,10 @@ bmp280 = adafruit_bmp280.Adafruit_BMP280_I2C(i2c, address=0x77)
 led = digitalio.DigitalInOut(LED_GPIO)
 led.direction = digitalio.Direction.OUTPUT
 
-# Motor coil setup
+# Motor  setup
+Motor = digitalio.DigitalInOut(MOTOR_GPIO)
+Motor.direction = digitalio.Direction.OUTPUT
 
-coil1 = digitalio.DigitalInOut(COIL1_GPIO)
-coil1.direction = digitalio.Direction.OUTPUT
-
-coil2 = digitalio.DigitalInOut(COIL2_GPIO)
-coil2.direction = digitalio.Direction.OUTPUT
-
-coil3 = digitalio.DigitalInOut(COIL3_GPIO)
-coil3.direction = digitalio.Direction.OUTPUT
-
-coil4 = digitalio.DigitalInOut(COIL4_GPIO)
-coil4.direction = digitalio.Direction.OUTPUT
 
 # Ultrasonic sensor setup
 TRIG = 16  # GPIO pin connected to TRIG
