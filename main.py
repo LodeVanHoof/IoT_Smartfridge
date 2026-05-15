@@ -9,7 +9,7 @@ import digitalio
 import requests
 import RPi.GPIO as GPIO
 import datetime
-import date
+from datetime import date
 import adafruit_ssd1306
 from PIL import Image, ImageDraw, ImageFont
 
