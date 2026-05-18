@@ -216,6 +216,103 @@
     return "Other";
   }
 
+  // ─── Persistent notification deduplication ───────────────────────────────────
+  // Keys: "expiring::<name>::<expiration_date>" or "expired::<name>::<expiration_date>"
+  // Value stored: ISO timestamp of when the notification was first generated
+  const NOTIF_STORAGE_KEY = "fridge_notif_seen";
+
+  function loadNotifSeen() {
+    try {
+      return JSON.parse(localStorage.getItem(NOTIF_STORAGE_KEY) || "{}");
+    } catch { return {}; }
+  }
+
+  function saveNotifSeen(seen) {
+    try {
+      localStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(seen));
+    } catch {}
+  }
+
+  // Prune stale keys for items no longer in the fridge
+  function pruneNotifSeen(seen) {
+    const activeKeys = new Set(
+            items.flatMap(i => [
+              `expiring::${i.name}::${i.expiration_date}`,
+              `expired::${i.name}::${i.expiration_date}`
+            ])
+    );
+    let changed = false;
+    for (const key of Object.keys(seen)) {
+      if (!activeKeys.has(key)) { delete seen[key]; changed = true; }
+    }
+    if (changed) saveNotifSeen(seen);
+    return seen;
+  }
+
+  // ─── Calculate when a notification "should have" appeared ────────────────────
+  // "expiring" threshold = expiry date minus 3 days (start of the 3-day warning window)
+  // "expired"  threshold = the expiry date itself (day after = expired)
+  function notifTimestamp(item, type) {
+    const expiry = new Date(item.expiration_date);
+    expiry.setHours(0, 0, 0, 0);
+
+    let threshold;
+    if (type === "expiring") {
+      threshold = new Date(expiry);
+      threshold.setDate(threshold.getDate() - 3); // 3 days before = start of warning
+    } else {
+      threshold = expiry; // expired = on the expiry date
+    }
+
+    const now = new Date();
+    // If the threshold is in the past we show a relative label; otherwise "just now"
+    if (threshold <= now) {
+      const diffMs = now - threshold;
+      const diffDays = Math.floor(diffMs / 86400000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffMins = Math.floor(diffMs / 60000);
+
+      if (diffDays >= 2)   return `${diffDays} days ago`;
+      if (diffDays === 1)  return "yesterday";
+      if (diffHours >= 1)  return `${diffHours}h ago`;
+      if (diffMins >= 1)   return `${diffMins}m ago`;
+      return "just now";
+    }
+    return "just now";
+  }
+
+  // ─── Drop-in replacement for the notification block inside loadItems() ────────
+  const notifSeen = new Set();
+
+  function checkItemNotifications() {
+    items.forEach(i => {
+      const s  = getStatus(i.expiration_date);
+      const d  = daysLeft(i.expiration_date);
+
+      // ── Contextual expiry message (no "expires in tomorrow") ────────────────
+      let expiryMsg;
+      if      (d === 0)  expiryMsg = `${i.name} expires today`;
+      else if (d === 1)  expiryMsg = `${i.name} expires tomorrow`;
+      else if (d >  1)   expiryMsg = `${i.name} expires in ${d} days`;
+      else               expiryMsg = `${i.name} expired ${Math.abs(d)} day${Math.abs(d) !== 1 ? "s" : ""} ago`;
+
+      if (s === "expiring") {
+        const key = `expiring::${i.name}::${i.expiration_date}`;
+        if (!notifSeen.has(key)) {
+          notifSeen.add(key);
+          addNotification("warn", "Expiring soon", expiryMsg, notifTimestamp(i, "expiring"));
+        }
+      }
+
+      if (s === "expired") {
+        const key = `expired::${i.name}::${i.expiration_date}`;
+        if (!notifSeen.has(key)) {
+          notifSeen.add(key);
+          addNotification("danger", "Expired item", expiryMsg, notifTimestamp(i, "expired"));
+        }
+      }
+    });
+  }
   async function loadItems() {
     const btn = document.querySelector(".scan-btn");
     btn.innerHTML = '<span class="spin">↻</span> Syncing…';
@@ -278,15 +375,7 @@
       document.getElementById("last-scan").textContent =
               `today at ${new Date().toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit"})}`;
 
-      items.forEach(i => {
-        const s = getStatus(i.expiration_date);
-        if (s === "expiring" && !i.warned) {
-          addNotification("warn", "Expiring soon", `${i.name} expires in ${daysLabel(daysLeft(i.expiration_date))}`, "just now");
-        }
-        if (s === "expired") {
-          addNotification("danger", "Expired item", `${i.name} has expired`, "just now");
-        }
-      });
+      checkItemNotifications();
 
       updateStats();
       renderItems();
@@ -418,19 +507,25 @@ function sendCloseDoorMQTT() {
       list.innerHTML = `<div class="empty-notifications">No notifications</div>`;
       return;
     }
-    list.innerHTML = notifications.map(n => `
-      <div class="notification-item ${n.type}">
-        <div class="notification-dot" style="background:${n.type==='fresh'?'var(--fresh)':n.type==='warn'?'var(--warn)':'var(--danger)'}"></div>
-        <div class="notification-content">
-          <div class="notification-title">${n.title}</div>
-          <div>${n.message}</div>
-          <div class="notification-time">${n.time}</div>
-        </div>
-      </div>`).join("");
+
+    // Sort most-recent first
+    const sorted = [...notifications].sort((a, b) => b.ts - a.ts);
+
+    list.innerHTML = sorted.map(n => `
+    <div class="notification-item ${n.type}">
+      <div class="notification-dot" style="background:${
+            n.type === "fresh" ? "var(--fresh)" : n.type === "warn" ? "var(--warn)" : "var(--danger)"
+    }"></div>
+      <div class="notification-content">
+        <div class="notification-title">${n.title}</div>
+        <div>${n.message}</div>
+        <div class="notification-time">${n.time}</div>
+      </div>
+    </div>`).join("");
   }
 
   function addNotification(type, title, message, time) {
-    notifications.unshift({ type, title, message, time });
+    notifications.unshift({ type, title, message, time, ts: Date.now() });
     if (notifications.length > 10) notifications.pop();
     renderNotifications();
   }
